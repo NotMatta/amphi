@@ -1,0 +1,9 @@
+# Copy to admin.properties (or use apps/api/.env) and run: ./gradlew createAdmin
+# You can also set APP_ADMIN_EMAIL/APP_ADMIN_PASSWORD (or ADMIN_EMAIL/ADMIN_PASSWORD) in the repo root .env and run `pnpm create-admin` from the root.
+# "username" is the login email in this app. If the email exists, password and role (ADMIN) are updated.
+
+app.admin.email=admin@example.com
+# app.admin.username=admin@example.com
+app.admin.password=change-me-strong-password
+app.admin.first-name=Admin
+app.admin.last-name=User

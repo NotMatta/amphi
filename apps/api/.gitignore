@@ -1,0 +1,23 @@
+# Gradle
+.gradle/
+build/
+bin/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE / Eclipse / VS Code Java
+.idea/
+*.iml
+.classpath
+.project
+.factorypath
+.settings/
+
+# Local data/runtime artifacts
+data/
+
+# Local admin bootstrap secrets/config
+admin.properties
+.env
+.env.local
+.env.*.local
+

@@ -1,0 +1,10 @@
+{
+  "name": "api",
+  "private": true,
+  "scripts": {
+    "dev": "./gradlew bootRun",
+    "build": "./gradlew build",
+    "test": "./gradlew test",
+    "create-admin": "./gradlew createAdmin"
+  }
+}

@@ -16,6 +16,21 @@
     "dev": {
       "cache": false,
       "persistent": true
+    },
+    "create-admin": {
+      "cache": false,
+      "passThroughEnv": [
+        "APP_ADMIN_EMAIL",
+        "APP_ADMIN_USERNAME",
+        "APP_ADMIN_PASSWORD",
+        "APP_ADMIN_FIRST_NAME",
+        "APP_ADMIN_LAST_NAME",
+        "ADMIN_EMAIL",
+        "ADMIN_USERNAME",
+        "ADMIN_PASSWORD",
+        "ADMIN_FIRST_NAME",
+        "ADMIN_LAST_NAME"
+      ]
     }
   }
 }
