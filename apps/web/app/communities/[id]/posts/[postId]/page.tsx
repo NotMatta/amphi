@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, ChevronRight, Heart, MessageSquare, MoreHorizontal, Pencil, Reply, Send, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronRight, Heart, MessageSquare, Pencil, Reply, Send, Trash2 } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import type { Comment, Post } from "@/lib/types";
+import type { Comment, Community, Post, User } from "@/lib/types";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,15 +13,137 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
-function buildTree(comments: Comment[]) {
-  const byId = new Map<number, Comment & { children: Comment[] }>();
+type CommentTreeNode = Comment & { children: CommentTreeNode[] };
+
+function buildTree(comments: Comment[]): CommentTreeNode[] {
+  const byId = new Map<number, CommentTreeNode>();
   comments.forEach((c) => byId.set(c.id, { ...c, children: [] }));
-  const roots: (Comment & { children: Comment[] })[] = [];
+  const roots: CommentTreeNode[] = [];
   byId.forEach((c) => {
     if (c.parentId && byId.has(c.parentId)) byId.get(c.parentId)!.children.push(c);
     else roots.push(c);
   });
   return roots;
+}
+
+function CommentNode({
+  c,
+  depth,
+  user,
+  community,
+  replyTo,
+  replyContent,
+  editId,
+  editContent,
+  busy,
+  onReplyTo,
+  onReplyContent,
+  onEditStart,
+  onEditContent,
+  onEditCancel,
+  onReplyCancel,
+  onToggleLike,
+  onSubmitReply,
+  onSaveEdit,
+  onDelete,
+}: {
+  c: CommentTreeNode;
+  depth: number;
+  user: User | null;
+  community: Community | null;
+  replyTo: number | null;
+  replyContent: string;
+  editId: number | null;
+  editContent: string;
+  busy: boolean;
+  onReplyTo: (id: number) => void;
+  onReplyContent: (v: string) => void;
+  onEditStart: (id: number, content: string) => void;
+  onEditContent: (v: string) => void;
+  onEditCancel: () => void;
+  onReplyCancel: () => void;
+  onToggleLike: (c: Comment) => void;
+  onSubmitReply: (parentId: number) => void;
+  onSaveEdit: (id: number) => void;
+  onDelete: (id: number) => void;
+}) {
+  const mine = user?.id === c.author.id;
+  const canDelete = !!(user && (mine || user.role === "ADMIN" || (community && community.owner.id === user.id)));
+  const isReplying = replyTo === c.id;
+  const isEditing = editId === c.id;
+  return (
+    <div className={depth > 0 ? "relative ml-3 pl-4 sm:ml-5 sm:pl-5" : ""}>
+      {depth > 0 && <span className="absolute bottom-2 left-0 top-0 w-px bg-border" aria-hidden />}
+      <div className="rounded-lg border bg-card p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{c.author.firstName[0]}{c.author.lastName[0]}</div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{c.author.firstName} {c.author.lastName}</p>
+              <p className="text-xs text-muted-foreground">{new Date(c.createdAt).toLocaleString()}{c.updatedAt ? " · edited" : ""}</p>
+            </div>
+          </div>
+        </div>
+
+        {isEditing ? (
+          <div className="mt-3 space-y-2">
+            <Textarea value={editContent} onChange={(e) => onEditContent(e.target.value)} className="min-h-[90px]" />
+            <div className="flex gap-2"><Button size="sm" onClick={() => onSaveEdit(c.id)} disabled={busy}>Save</Button><Button size="sm" variant="ghost" onClick={onEditCancel}>Cancel</Button></div>
+          </div>
+        ) : (
+          <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{c.content}</p>
+        )}
+
+        <div className="mt-3 flex flex-wrap items-center gap-1">
+          {user && (
+            <Button size="sm" variant="ghost" className={`h-8 gap-1.5 px-2 ${c.likedByMe ? "text-primary" : "text-muted-foreground"}`} onClick={() => onToggleLike(c)} disabled={busy}>
+              <Heart className={`h-4 w-4 ${c.likedByMe ? "fill-primary" : ""}`} />{c.likeCount}
+            </Button>
+          )}
+          {!user && <span className="inline-flex items-center gap-1.5 px-2 text-sm text-muted-foreground"><Heart className="h-4 w-4" />{c.likeCount}</span>}
+          {user && <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2 text-muted-foreground" onClick={() => onReplyTo(c.id)}><Reply className="h-4 w-4" />Reply</Button>}
+          {mine && !isEditing && <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2 text-muted-foreground" onClick={() => onEditStart(c.id, c.content)}><Pencil className="h-4 w-4" />Edit</Button>}
+          {canDelete && <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2 text-muted-foreground hover:text-destructive" onClick={() => onDelete(c.id)} disabled={busy}><Trash2 className="h-4 w-4" />Delete</Button>}
+        </div>
+
+        {isReplying && (
+          <div className="mt-3 space-y-2 rounded-md border bg-muted/30 p-3">
+            <p className="text-xs font-medium text-muted-foreground">Replying to {c.author.firstName}</p>
+            <Textarea value={replyContent} onChange={(e) => onReplyContent(e.target.value)} placeholder="Write a thoughtful reply..." className="min-h-[80px] bg-background" autoFocus />
+            <div className="flex gap-2"><Button size="sm" onClick={() => onSubmitReply(c.id)} disabled={busy || !replyContent.trim()}>Post reply</Button><Button size="sm" variant="ghost" onClick={onReplyCancel}>Cancel</Button></div>
+          </div>
+        )}
+      </div>
+      {c.children.length > 0 && (
+        <div className="mt-3 space-y-3">
+          {c.children.map((child) => (
+            <CommentNode
+              key={child.id}
+              c={child}
+              depth={depth + 1}
+              user={user}
+              community={community}
+              replyTo={replyTo}
+              replyContent={replyContent}
+              editId={editId}
+              editContent={editContent}
+              busy={busy}
+              onReplyTo={onReplyTo}
+              onReplyContent={onReplyContent}
+              onEditStart={onEditStart}
+              onEditContent={onEditContent}
+              onEditCancel={onEditCancel}
+              onReplyCancel={onReplyCancel}
+              onToggleLike={onToggleLike}
+              onSubmitReply={onSubmitReply}
+              onSaveEdit={onSaveEdit}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function PostDetailPage() {
@@ -30,6 +152,7 @@ export default function PostDetailPage() {
   const { user } = useAuth();
   const router = useRouter();
   const [post, setPost] = useState<Post | null>(null);
+  const [community, setCommunity] = useState<Community | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +172,9 @@ export default function PostDetailPage() {
       ]);
       setPost(p);
       setComments(c);
+      try {
+        setCommunity(await api.get<Community>(`/api/communities/${communityId}`, !!user));
+      } catch { setCommunity(null); }
       setError(null);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load post");
@@ -59,11 +185,13 @@ export default function PostDetailPage() {
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [postId, user?.id]);
 
+  const canManagePost = !!(user && (user.id === post?.author.id || user.role === "ADMIN" || (community && community.owner.id === user.id)));
+
   async function togglePostLike() {
     if (!post) return;
     setBusy(true);
     try {
-      if (post.likedByMe) await api.del(`/api/posts/${post.id}`);
+      if (post.likedByMe) await api.del(`/api/posts/${post.id}/likes`);
       else await api.post(`/api/posts/${post.id}/likes`);
       await load();
     } catch (e) { setNotice(e instanceof ApiError ? e.message : "Action failed"); }
@@ -101,7 +229,7 @@ export default function PostDetailPage() {
   async function deleteComment(commentId: number) {
     setBusy(true);
     try { await api.del(`/api/comments/${commentId}`); await load(); }
-    catch (e) { setNotice(e instanceof ApiError ? e.message : "Failed to delete (comments with replies must be cleared first)"); }
+    catch (e) { setNotice(e instanceof ApiError ? e.message : "Failed to delete comment"); }
     finally { setBusy(false); }
   }
 
@@ -119,8 +247,7 @@ export default function PostDetailPage() {
     if (!post || !confirm("Delete this post? This cannot be undone.")) return;
     setBusy(true);
     try { await api.del(`/api/posts/${post.id}`); router.push(`/communities/${communityId}`); }
-    catch (e) { setNotice(e instanceof ApiError ? e.message : "Failed to delete post"); }
-    finally { setBusy(false); }
+    catch (e) { setNotice(e instanceof ApiError ? e.message : "Failed to delete post"); setBusy(false); }
   }
 
   const tree = useMemo(() => buildTree(comments), [comments]);
@@ -139,60 +266,6 @@ export default function PostDetailPage() {
     </div>
   );
   if (!post) return <p>Not found.</p>;
-
-  const canDeletePost = user?.id === post.author.id; // (author; moderators enforced server-side too)
-
-  function CommentNode({ c, depth }: { c: Comment & { children: Comment[] }; depth: number }) {
-    const mine = user?.id === c.author.id;
-    const isReplying = replyTo === c.id;
-    const isEditing = editId === c.id;
-    return (
-      <div className={depth > 0 ? "relative ml-3 pl-4 sm:ml-5 sm:pl-5" : ""}>
-        {depth > 0 && <span className="absolute bottom-2 left-0 top-0 w-px bg-border" aria-hidden />}
-        <div className="rounded-lg border bg-card p-4 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{c.author.firstName[0]}{c.author.lastName[0]}</div>
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{c.author.firstName} {c.author.lastName}</p>
-                <p className="text-xs text-muted-foreground">{new Date(c.createdAt).toLocaleString()}{c.updatedAt ? " · edited" : ""}</p>
-              </div>
-            </div>
-          </div>
-
-          {isEditing ? (
-            <div className="mt-3 space-y-2">
-              <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} className="min-h-[90px]" />
-              <div className="flex gap-2"><Button size="sm" onClick={() => saveEdit(c.id)} disabled={busy}>Save</Button><Button size="sm" variant="ghost" onClick={() => setEditId(null)}>Cancel</Button></div>
-            </div>
-          ) : (
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{c.content}</p>
-          )}
-
-          <div className="mt-3 flex flex-wrap items-center gap-1">
-            {user && (
-              <Button size="sm" variant="ghost" className={`h-8 gap-1.5 px-2 ${c.likedByMe ? "text-primary" : "text-muted-foreground"}`} onClick={() => toggleCommentLike(c)} disabled={busy}>
-                <Heart className={`h-4 w-4 ${c.likedByMe ? "fill-primary" : ""}`} />{c.likeCount}
-              </Button>
-            )}
-            {!user && <span className="inline-flex items-center gap-1.5 px-2 text-sm text-muted-foreground"><Heart className="h-4 w-4" />{c.likeCount}</span>}
-            {user && <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2 text-muted-foreground" onClick={() => { setReplyTo(c.id); setReplyContent(""); setEditId(null); }}><Reply className="h-4 w-4" />Reply</Button>}
-            {mine && !isEditing && <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2 text-muted-foreground" onClick={() => { setEditId(c.id); setEditContent(c.content); setReplyTo(null); }}><Pencil className="h-4 w-4" />Edit</Button>}
-            {mine && <Button size="sm" variant="ghost" className="h-8 gap-1.5 px-2 text-muted-foreground hover:text-destructive" onClick={() => deleteComment(c.id)} disabled={busy}><Trash2 className="h-4 w-4" />Delete</Button>}
-          </div>
-
-          {isReplying && (
-            <div className="mt-3 space-y-2 rounded-md border bg-muted/30 p-3">
-              <p className="text-xs font-medium text-muted-foreground">Replying to {c.author.firstName}</p>
-              <Textarea value={replyContent} onChange={(e) => setReplyContent(e.target.value)} placeholder="Write a thoughtful reply..." className="min-h-[80px] bg-background" />
-              <div className="flex gap-2"><Button size="sm" onClick={() => submitReply(c.id)} disabled={busy || !replyContent.trim()}>Post reply</Button><Button size="sm" variant="ghost" onClick={() => setReplyTo(null)}>Cancel</Button></div>
-            </div>
-          )}
-        </div>
-        {c.children.length > 0 && <div className="mt-3 space-y-3">{c.children.map((child) => <CommentNode key={child.id} c={child as any} depth={depth + 1} />)}</div>}
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -227,7 +300,7 @@ export default function PostDetailPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5 pt-6">
-            <div className="prose-sm max-w-none whitespace-pre-wrap text-foreground leading-relaxed">{post.content}</div>
+            <div className="prose-sm max-w-none whitespace-pre-wrap leading-relaxed text-foreground">{post.content}</div>
             <Separator />
             <div className="flex flex-wrap items-center gap-2">
               {user ? (
@@ -238,7 +311,7 @@ export default function PostDetailPage() {
                 <span className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground"><Heart className="h-4 w-4" />{post.likeCount} likes</span>
               )}
               <span className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground"><MessageSquare className="h-4 w-4" />{comments.length} comments</span>
-              {canDeletePost && <Button variant="outline" className="ml-auto gap-2 text-destructive hover:text-destructive" onClick={deletePost} disabled={busy}><Trash2 className="h-4 w-4" />Delete post</Button>}
+              {canManagePost && <Button variant="outline" className="ml-auto gap-2 text-destructive hover:text-destructive" onClick={deletePost} disabled={busy}><Trash2 className="h-4 w-4" />Delete post</Button>}
             </div>
           </CardContent>
         </Card>
@@ -274,7 +347,32 @@ export default function PostDetailPage() {
             <p className="mt-1 text-sm text-muted-foreground">Start the conversation by adding the first comment.</p>
           </CardContent></Card>
         ) : (
-          <div className="space-y-4">{tree.map((c) => <CommentNode key={c.id} c={c as any} depth={0} />)}</div>
+          <div className="space-y-4">
+            {tree.map((c) => (
+              <CommentNode
+                key={c.id}
+                c={c}
+                depth={0}
+                user={user}
+                community={community}
+                replyTo={replyTo}
+                replyContent={replyContent}
+                editId={editId}
+                editContent={editContent}
+                busy={busy}
+                onReplyTo={(id) => { setReplyTo(id); setReplyContent(""); setEditId(null); }}
+                onReplyContent={setReplyContent}
+                onEditStart={(id, content) => { setEditId(id); setEditContent(content); setReplyTo(null); }}
+                onEditContent={setEditContent}
+                onEditCancel={() => setEditId(null)}
+                onReplyCancel={() => setReplyTo(null)}
+                onToggleLike={toggleCommentLike}
+                onSubmitReply={submitReply}
+                onSaveEdit={saveEdit}
+                onDelete={deleteComment}
+              />
+            ))}
+          </div>
         )}
       </section>
     </div>

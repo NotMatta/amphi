@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BookOpen, GraduationCap, Home, LogOut, Shield, Users } from "lucide-react";
+import { BookOpen, GraduationCap, Home, LogOut, Settings, Shield, Users } from "lucide-react";
 import { useAuth } from "./auth-provider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -59,7 +59,7 @@ export function Navbar() {
             <div className="h-9 w-28 animate-pulse rounded-md bg-muted" />
           ) : user ? (
             <>
-              <div className="hidden items-center gap-2 rounded-md border bg-card px-3 py-1.5 sm:flex">
+              <Link href="/settings" className="hidden items-center gap-2 rounded-md border bg-card px-3 py-1.5 transition-colors hover:bg-accent/50 sm:flex" aria-label="Open settings">
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                   {user.firstName[0]}{user.lastName[0]}
                 </div>
@@ -67,7 +67,10 @@ export function Navbar() {
                   <p className="text-sm font-medium">{user.firstName} {user.lastName}</p>
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{user.role}</p>
                 </div>
-              </div>
+              </Link>
+              <Button variant="outline" size="icon" className="sm:hidden" asChild aria-label="Settings">
+                <Link href="/settings"><Settings className="h-4 w-4" /></Link>
+              </Button>
               <Button
                 variant="outline"
                 size="sm"

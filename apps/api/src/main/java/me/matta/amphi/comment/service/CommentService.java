@@ -4,7 +4,6 @@ import me.matta.amphi.comment.dto.CommentRequest;
 import me.matta.amphi.comment.dto.CommentResponse;
 import me.matta.amphi.comment.entity.Comment;
 import me.matta.amphi.comment.repository.CommentRepository;
-import me.matta.amphi.common.exception.BadRequestException;
 import me.matta.amphi.common.exception.ForbiddenException;
 import me.matta.amphi.common.exception.ResourceNotFoundException;
 import me.matta.amphi.community.entity.CommunityType;
@@ -12,7 +11,6 @@ import me.matta.amphi.community.service.CommunityService;
 import me.matta.amphi.post.entity.Post;
 import me.matta.amphi.post.service.PostService;
 import me.matta.amphi.reaction.repository.CommentLikeRepository;
-import me.matta.amphi.user.entity.Role;
 import me.matta.amphi.user.entity.User;
 import me.matta.amphi.user.service.UserService;
 import org.springframework.stereotype.Service;
@@ -43,7 +41,7 @@ public class CommentService {
         User current = userService.getCurrentUser();
         Post post = postService.getEntity(postId);
         communityService.assertCanAccessCommunityContent(current, post.getCommunity());
-        if (!communityService.isMember(current, post.getCommunity()) && !communityService.canModerate(current, post.getCommunity())) {
+        if (!communityService.isActiveMember(current, post.getCommunity()) && !communityService.canManage(current, post.getCommunity())) {
             throw new ForbiddenException("You must be a member to comment");
         }
         Comment comment = new Comment();
@@ -59,7 +57,7 @@ public class CommentService {
         Comment parent = getEntity(commentId);
         Post post = parent.getPost();
         communityService.assertCanAccessCommunityContent(current, post.getCommunity());
-        if (!communityService.isMember(current, post.getCommunity()) && !communityService.canModerate(current, post.getCommunity())) {
+        if (!communityService.isActiveMember(current, post.getCommunity()) && !communityService.canManage(current, post.getCommunity())) {
             throw new ForbiddenException("You must be a member to comment");
         }
         Comment reply = new Comment();
@@ -76,6 +74,8 @@ public class CommentService {
         User current = tryCurrentUser();
         if (post.getCommunity().getType() == CommunityType.PRIVATE) {
             if (current == null) throw new ForbiddenException("You do not have access to this private community");
+            communityService.assertCanAccessCommunityContent(current, post.getCommunity());
+        } else if (current != null) {
             communityService.assertCanAccessCommunityContent(current, post.getCommunity());
         }
         return commentRepository.findByPostIdOrderByCreatedAtAsc(postId).stream()
@@ -97,15 +97,24 @@ public class CommentService {
     public void delete(Long commentId) {
         Comment comment = getEntity(commentId);
         User current = userService.getCurrentUser();
-        boolean canModerate = current.getRole() == Role.ADMIN || comment.getPost().getCommunity().getOwner().getId().equals(current.getId());
-        if (!comment.getAuthor().getId().equals(current.getId()) && !canModerate) {
+        boolean canManage = communityService.canManage(current, comment.getPost().getCommunity());
+        if (!comment.getAuthor().getId().equals(current.getId()) && !canManage) {
             throw new ForbiddenException("You cannot delete this comment");
         }
-        if (!comment.getReplies().isEmpty()) {
-            throw new BadRequestException("Cannot delete a comment that has replies; delete replies first");
+        deleteCommentTree(comment);
+    }
+
+    @Transactional
+    public void deleteCommentTree(Comment comment) {
+        Comment current = commentRepository.findById(comment.getId()).orElse(null);
+        if (current == null) return;
+        for (Comment reply : commentRepository.findByParentId(current.getId())) {
+            deleteCommentTree(reply);
         }
-        commentLikeRepository.deleteByCommentId(commentId);
-        commentRepository.delete(comment);
+        commentLikeRepository.deleteByCommentId(current.getId());
+        if (commentRepository.existsById(current.getId())) {
+            commentRepository.deleteById(current.getId());
+        }
     }
 
     public Comment getEntity(Long id) {

@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { ArrowLeft, Calendar, Crown, Heart, KeyRound, Lock, LogOut, MessageSquare, Send, Shield, UserMinus, UserPlus, Users } from "lucide-react";
+import { useParams, useRouter } from "next/navigation";
+import { ArrowLeft, Ban, Calendar, CheckCircle2, Crown, Heart, KeyRound, Lock, LogOut, MessageSquare, Send, Shield, Trash2, UserMinus, UserPlus, Users } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
-import type { Community, InvitationCode, Post, User } from "@/lib/types";
+import type { Community, InvitationCode, Membership, Post } from "@/lib/types";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,10 +18,11 @@ import { Separator } from "@/components/ui/separator";
 export default function CommunityDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  const router = useRouter();
   const { user } = useAuth();
   const [community, setCommunity] = useState<Community | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
-  const [members, setMembers] = useState<User[]>([]);
+  const [members, setMembers] = useState<Membership[]>([]);
   const [invitation, setInvitation] = useState<InvitationCode | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,11 +34,13 @@ export default function CommunityDetailPage() {
   const [postContent, setPostContent] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const myMembership = user ? members.find((m) => m.user.id === user.id) : undefined;
   const isOwner = !!(user && community && community.owner.id === user.id);
   const isAdmin = user?.role === "ADMIN";
   const canManage = isOwner || isAdmin;
-  const isMember = !!(user && members.some((m) => m.id === user.id));
-  const canPost = !!user && (isMember || canManage);
+  const isMember = !!myMembership && !myMembership.banned;
+  const isBanned = !!myMembership?.banned;
+  const canPost = !!user && (canManage || isMember);
 
   function flash(msg: string, type: "ok" | "err" = "ok") { setNotice(msg); setNoticeType(type); }
 
@@ -56,15 +59,18 @@ export default function CommunityDetailPage() {
       }
       if (user) {
         try {
-          const m = await api.get<User[]>(`/api/communities/${id}/members`);
+          const m = await api.get<Membership[]>(`/api/communities/${id}/members`);
           setMembers(m);
         } catch { setMembers([]); }
         if (c.owner.id === user.id || user.role === "ADMIN") {
           try { setInvitation(await api.get<InvitationCode>(`/api/communities/${id}/invitation`)); }
           catch { setInvitation(null); }
+        } else {
+          setInvitation(null);
         }
       } else {
         setMembers([]);
+        setInvitation(null);
       }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load community");
@@ -124,6 +130,30 @@ export default function CommunityDetailPage() {
     finally { setBusy(false); }
   }
 
+  async function banMember(userId: number) {
+    setBusy(true);
+    try { await api.patch(`/api/communities/${id}/members/${userId}/ban`, {}); flash("User banned from community."); await loadAll(); }
+    catch (e) { flash(e instanceof ApiError ? e.message : "Failed to ban user", "err"); }
+    finally { setBusy(false); }
+  }
+
+  async function unbanMember(userId: number) {
+    setBusy(true);
+    try { await api.patch(`/api/communities/${id}/members/${userId}/unban`, {}); flash("User unbanned."); await loadAll(); }
+    catch (e) { flash(e instanceof ApiError ? e.message : "Failed to unban user", "err"); }
+    finally { setBusy(false); }
+  }
+
+  async function deleteCommunity() {
+    if (!confirm("Delete this community permanently? All posts and data in it will be removed.")) return;
+    setBusy(true);
+    try {
+      await api.del(`/api/communities/${id}`);
+      router.push("/communities");
+      router.refresh();
+    } catch (e) { flash(e instanceof ApiError ? e.message : "Failed to delete community", "err"); setBusy(false); }
+  }
+
   if (loading) return (
     <div className="space-y-6">
       <div className="h-5 w-40 animate-pulse rounded bg-muted" />
@@ -166,7 +196,14 @@ export default function CommunityDetailPage() {
             </CardDescription>
             {community.description && <p className="max-w-3xl text-sm leading-relaxed text-foreground/90 sm:text-base">{community.description}</p>}
           </div>
-          <Button variant="outline" size="sm" className="shrink-0 gap-2" asChild><Link href="/communities"><ArrowLeft className="h-4 w-4" />All communities</Link></Button>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {canManage && (
+              <Button variant="outline" size="sm" className="gap-2 text-destructive hover:text-destructive" onClick={deleteCommunity} disabled={busy}>
+                <Trash2 className="h-4 w-4" />Delete
+              </Button>
+            )}
+            <Button variant="outline" size="sm" className="gap-2" asChild><Link href="/communities"><ArrowLeft className="h-4 w-4" />All communities</Link></Button>
+          </div>
         </CardHeader>
       </Card>
 
@@ -182,11 +219,12 @@ export default function CommunityDetailPage() {
                 <CardTitle className="flex items-center gap-2 text-base"><UserPlus className="h-4 w-4 text-primary" />Membership</CardTitle>
               </CardHeader>
               <CardContent>
-                {isMember ? (
+                {isBanned ? (
+                  <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">You are banned from this community and cannot participate.</div>
+                ) : isMember || isOwner ? (
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-sm"><Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/10">Member</Badge><span className="text-muted-foreground">You are part of this community.</span></div>
+                    <div className="flex items-center gap-2 text-sm"><Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/10">Member</Badge><span className="text-muted-foreground">{isOwner ? "You own this community." : "You are part of this community."}</span></div>
                     {!isOwner && <Button variant="outline" size="sm" className="gap-2" onClick={leave} disabled={busy}><LogOut className="h-4 w-4" />Leave</Button>}
-                    {isOwner && <span className="text-xs text-muted-foreground">You own this community.</span>}
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -234,12 +272,12 @@ export default function CommunityDetailPage() {
               <Card className="border-dashed"><CardContent className="flex flex-col items-center py-10 text-center">
                 <div className="mb-3 rounded-full bg-muted p-3"><MessageSquare className="h-5 w-5 text-muted-foreground" /></div>
                 <p className="font-medium">No posts yet</p>
-                <p className="mt-1 max-w-sm text-sm text-muted-foreground">{user && !canPost ? "Join the community to view and create posts." : "Be the first to start a discussion in this community."}</p>
+                <p className="mt-1 max-w-sm text-sm text-muted-foreground">{isBanned ? "You cannot access this community." : user && !canPost && community.type === "PRIVATE" ? "Join the community to view and create posts." : "Be the first to start a discussion in this community."}</p>
               </CardContent></Card>
             ) : (
               <div className="space-y-3">
                 {posts.map((p) => (
-                  <Link key={p.id} href={`/communities/${id}/posts/${p.id}`} className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl">
+                  <Link key={p.id} href={`/communities/${id}/posts/${p.id}`} className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <Card className="transition-all hover:border-primary/30 hover:shadow-md">
                       <CardHeader className="pb-2">
                         <CardTitle className="line-clamp-2 text-lg leading-snug">{p.title}</CardTitle>
@@ -250,7 +288,7 @@ export default function CommunityDetailPage() {
                         </CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-3 pt-0">
-                        <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground whitespace-pre-wrap">{p.content}</p>
+                        <p className="line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">{p.content}</p>
                         <div className="flex items-center gap-4 text-sm text-muted-foreground">
                           <span className="inline-flex items-center gap-1.5"><Heart className={`h-4 w-4 ${p.likedByMe ? "fill-primary text-primary" : ""}`} />{p.likeCount}</span>
                           <span className="inline-flex items-center gap-1.5"><MessageSquare className="h-4 w-4" />View discussion</span>
@@ -265,7 +303,7 @@ export default function CommunityDetailPage() {
         </div>
 
         <aside className="space-y-6">
-          {(isOwner || isAdmin) && community.type === "PRIVATE" && (
+          {canManage && community.type === "PRIVATE" && (
             <Card className="border-primary/20">
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2 text-base"><KeyRound className="h-4 w-4 text-primary" />Invitation</CardTitle>
@@ -295,22 +333,39 @@ export default function CommunityDetailPage() {
                 <p className="text-sm text-muted-foreground">No members visible or you may not have access.</p>
               ) : (
                 <ul className="space-y-1">
-                  {members.map((m) => (
-                    <li key={m.id} className="flex items-center justify-between gap-2 rounded-md px-2 py-2 hover:bg-muted/40">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{m.firstName[0]}{m.lastName[0]}</div>
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{m.firstName} {m.lastName}</p>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">{m.id === community.owner.id && <Shield className="h-3 w-3" />}{m.id === community.owner.id ? "Owner" : m.role}</p>
+                  {members.map((m) => {
+                    const isOwnerMember = m.user.id === community.owner.id;
+                    return (
+                      <li key={m.user.id} className="flex items-center justify-between gap-2 rounded-md px-2 py-2 hover:bg-muted/40">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">{m.user.firstName[0]}{m.user.lastName[0]}</div>
+                          <div className="min-w-0">
+                            <p className="flex items-center gap-2 truncate text-sm font-medium">
+                              {m.user.firstName} {m.user.lastName}
+                              {m.banned && <Badge variant="destructive" className="h-5 px-1.5 text-[10px]">Banned</Badge>}
+                            </p>
+                            <p className="flex items-center gap-1 text-xs text-muted-foreground">{isOwnerMember && <Shield className="h-3 w-3" />}{isOwnerMember ? "Owner" : m.user.role}</p>
+                          </div>
                         </div>
-                      </div>
-                      {canManage && m.id !== community.owner.id && (
-                        <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive" disabled={busy} onClick={() => removeMember(m.id)} aria-label={`Remove ${m.firstName}`}>
-                          <UserMinus className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </li>
-                  ))}
+                        {canManage && !isOwnerMember && (
+                          <div className="flex shrink-0 items-center gap-1">
+                            {m.banned ? (
+                              <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-primary" disabled={busy} onClick={() => unbanMember(m.user.id)} aria-label={`Unban ${m.user.firstName}`} title="Unban">
+                                <CheckCircle2 className="h-4 w-4" />
+                              </Button>
+                            ) : (
+                              <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" disabled={busy} onClick={() => banMember(m.user.id)} aria-label={`Ban ${m.user.firstName}`} title="Ban">
+                                <Ban className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground hover:text-destructive" disabled={busy} onClick={() => removeMember(m.user.id)} aria-label={`Remove ${m.user.firstName}`} title="Remove">
+                              <UserMinus className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </CardContent>

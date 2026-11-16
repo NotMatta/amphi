@@ -1,6 +1,5 @@
 package me.matta.amphi.post.service;
 
-import me.matta.amphi.comment.entity.Comment;
 import me.matta.amphi.comment.repository.CommentRepository;
 import me.matta.amphi.common.exception.ForbiddenException;
 import me.matta.amphi.common.exception.ResourceNotFoundException;
@@ -13,7 +12,6 @@ import me.matta.amphi.post.entity.Post;
 import me.matta.amphi.post.repository.PostRepository;
 import me.matta.amphi.reaction.repository.CommentLikeRepository;
 import me.matta.amphi.reaction.repository.PostLikeRepository;
-import me.matta.amphi.user.entity.Role;
 import me.matta.amphi.user.entity.User;
 import me.matta.amphi.user.service.UserService;
 import org.springframework.stereotype.Service;
@@ -46,14 +44,16 @@ public class PostService {
     public PostResponse create(Long communityId, PostRequest request) {
         User current = userService.getCurrentUser();
         Community community = communityService.getEntity(communityId);
-        communityService.assertCanPost(current, community);
+        communityService.assertCanAccessCommunityContent(current, community);
+        if (!communityService.canPost(current, community)) {
+            throw new ForbiddenException("You are not allowed to post in this community");
+        }
         Post post = new Post();
-        post.setTitle(request.title().trim());
+        post.setTitle(request.title());
         post.setContent(request.content());
         post.setAuthor(current);
         post.setCommunity(community);
-        Post saved = postRepository.save(post);
-        return toResponse(saved, current);
+        return toResponse(postRepository.save(post), current);
     }
 
     @Transactional(readOnly = true)
@@ -63,6 +63,8 @@ public class PostService {
         if (community.getType() == CommunityType.PRIVATE) {
             if (current == null) throw new ForbiddenException("You do not have access to this private community");
             communityService.assertCanAccessCommunityContent(current, community);
+        } else if (current != null) {
+            communityService.assertCanAccessCommunityContent(current, community);
         }
         return postRepository.findByCommunityIdOrderByCreatedAtDesc(communityId).stream()
                 .map(p -> toResponse(p, current)).toList();
@@ -71,11 +73,12 @@ public class PostService {
     @Transactional(readOnly = true)
     public PostResponse getById(Long postId) {
         Post post = getEntity(postId);
-        Community community = post.getCommunity();
         User current = tryCurrentUser();
-        if (community.getType() == CommunityType.PRIVATE) {
+        if (post.getCommunity().getType() == CommunityType.PRIVATE) {
             if (current == null) throw new ForbiddenException("You do not have access to this private community");
-            communityService.assertCanAccessCommunityContent(current, community);
+            communityService.assertCanAccessCommunityContent(current, post.getCommunity());
+        } else if (current != null) {
+            communityService.assertCanAccessCommunityContent(current, post.getCommunity());
         }
         return toResponse(post, current);
     }
@@ -87,7 +90,7 @@ public class PostService {
         if (!post.getAuthor().getId().equals(current.getId())) {
             throw new ForbiddenException("You can only edit your own posts");
         }
-        post.setTitle(request.title().trim());
+        post.setTitle(request.title());
         post.setContent(request.content());
         return toResponse(postRepository.save(post), current);
     }
@@ -96,25 +99,16 @@ public class PostService {
     public void delete(Long postId) {
         Post post = getEntity(postId);
         User current = userService.getCurrentUser();
-        boolean canModerate = current.getRole() == Role.ADMIN || post.getCommunity().getOwner().getId().equals(current.getId());
-        if (!post.getAuthor().getId().equals(current.getId()) && !canModerate) {
+        boolean canManage = communityService.canManage(current, post.getCommunity());
+        if (!post.getAuthor().getId().equals(current.getId()) && !canManage) {
             throw new ForbiddenException("You cannot delete this post");
         }
-        postLikeRepository.deleteByPostId(postId);
-        List<Comment> comments = commentRepository.findByPostIdOrderByCreatedAtAsc(postId);
-        // delete replies/children likes first by deleting in reverse order of creation is rough; but replies reference parents.
-        // simple approach: repeatedly delete leaf comments
-        for (int i = comments.size() - 1; i >= 0; i--) {
-            Comment c = comments.get(i);
-            commentLikeRepository.deleteByCommentId(c.getId());
-            commentRepository.delete(c);
-        }
+        communityService.deletePostData(post);
         postRepository.delete(post);
     }
 
-    public Post getEntity(Long postId) {
-        return postRepository.findById(postId)
-                .orElseThrow(() -> new ResourceNotFoundException("Post not found"));
+    public Post getEntity(Long id) {
+        return postRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("Post not found"));
     }
 
     private PostResponse toResponse(Post post, User current) {

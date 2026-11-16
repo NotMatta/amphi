@@ -7,4 +7,7 @@ import java.util.List;
 
 public interface StudyResourceRepository extends JpaRepository<StudyResource, Long> {
     List<StudyResource> findByCommunityId(Long communityId);
+    List<StudyResource> findByAuthorId(Long authorId);
+    void deleteByCommunityId(Long communityId);
+    void deleteByAuthorId(Long authorId);
 }

@@ -27,6 +27,9 @@ public class Membership {
     @Column(nullable = false)
     private Instant joinedAt;
 
+    @Column(nullable = false)
+    private boolean banned = false;
+
     @PrePersist
     void onCreate() {
         if (joinedAt == null) joinedAt = Instant.now();
@@ -40,4 +43,6 @@ public class Membership {
     public void setCommunity(Community community) { this.community = community; }
     public Instant getJoinedAt() { return joinedAt; }
     public void setJoinedAt(Instant joinedAt) { this.joinedAt = joinedAt; }
+    public boolean isBanned() { return banned; }
+    public void setBanned(boolean banned) { this.banned = banned; }
 }

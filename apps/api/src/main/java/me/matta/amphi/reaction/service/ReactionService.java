@@ -3,9 +3,7 @@ package me.matta.amphi.reaction.service;
 import me.matta.amphi.comment.entity.Comment;
 import me.matta.amphi.comment.service.CommentService;
 import me.matta.amphi.common.exception.ConflictException;
-import me.matta.amphi.common.exception.ForbiddenException;
 import me.matta.amphi.common.exception.ResourceNotFoundException;
-import me.matta.amphi.community.entity.CommunityType;
 import me.matta.amphi.community.service.CommunityService;
 import me.matta.amphi.post.entity.Post;
 import me.matta.amphi.post.service.PostService;
@@ -43,7 +41,7 @@ public class ReactionService {
     public void likePost(Long postId) {
         User current = userService.getCurrentUser();
         Post post = postService.getEntity(postId);
-        assertPostAccess(current, post);
+        communityService.assertCanAccessCommunityContent(current, post.getCommunity());
         if (postLikeRepository.existsByUserIdAndPostId(current.getId(), postId)) {
             throw new ConflictException("You already liked this post");
         }
@@ -57,7 +55,7 @@ public class ReactionService {
     public void unlikePost(Long postId) {
         User current = userService.getCurrentUser();
         Post post = postService.getEntity(postId);
-        assertPostAccess(current, post);
+        communityService.assertCanAccessCommunityContent(current, post.getCommunity());
         PostLike like = postLikeRepository.findByUserIdAndPostId(current.getId(), postId)
                 .orElseThrow(() -> new ResourceNotFoundException("Like not found"));
         postLikeRepository.delete(like);
@@ -67,7 +65,7 @@ public class ReactionService {
     public void likeComment(Long commentId) {
         User current = userService.getCurrentUser();
         Comment comment = commentService.getEntity(commentId);
-        assertCommentAccess(current, comment);
+        communityService.assertCanAccessCommunityContent(current, comment.getPost().getCommunity());
         if (commentLikeRepository.existsByUserIdAndCommentId(current.getId(), commentId)) {
             throw new ConflictException("You already liked this comment");
         }
@@ -81,21 +79,9 @@ public class ReactionService {
     public void unlikeComment(Long commentId) {
         User current = userService.getCurrentUser();
         Comment comment = commentService.getEntity(commentId);
-        assertCommentAccess(current, comment);
+        communityService.assertCanAccessCommunityContent(current, comment.getPost().getCommunity());
         CommentLike like = commentLikeRepository.findByUserIdAndCommentId(current.getId(), commentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Like not found"));
         commentLikeRepository.delete(like);
-    }
-
-    private void assertPostAccess(User user, Post post) {
-        if (post.getCommunity().getType() == CommunityType.PRIVATE) {
-            communityService.assertCanAccessCommunityContent(user, post.getCommunity());
-        }
-    }
-
-    private void assertCommentAccess(User user, Comment comment) {
-        if (comment.getPost().getCommunity().getType() == CommunityType.PRIVATE) {
-            communityService.assertCanAccessCommunityContent(user, comment.getPost().getCommunity());
-        }
     }
 }

@@ -60,6 +60,12 @@ export interface StudyResource {
   createdAt: string;
 }
 
+export interface Membership {
+  user: User;
+  joinedAt: string;
+  banned: boolean;
+}
+
 export interface InvitationCode {
   id: number;
   code: string;

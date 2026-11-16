@@ -8,4 +8,5 @@ import java.util.List;
 
 public interface CommunityRepository extends JpaRepository<Community, Long> {
     List<Community> findByType(CommunityType type);
+    List<Community> findByOwnerId(Long ownerId);
 }

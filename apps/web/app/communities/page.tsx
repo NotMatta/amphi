@@ -25,10 +25,14 @@ export default function CommunitiesPage() {
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [joinNotice, setJoinNotice] = useState<string | null>(null);
+  const [joinNoticeType, setJoinNoticeType] = useState<"ok" | "err">("ok");
 
   async function load() {
     try {
-      const data = await api.get<Community[]>("/api/communities", false);
+      const data = await api.get<Community[]>("/api/communities");
       setCommunities(data);
       setError(null);
     } catch (e) {
@@ -38,7 +42,7 @@ export default function CommunitiesPage() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [user?.id]);
 
   async function createCommunity(e: React.FormEvent) {
     e.preventDefault();
@@ -55,6 +59,25 @@ export default function CommunitiesPage() {
     }
   }
 
+  async function joinByCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (!joinCode.trim()) return;
+    setJoining(true);
+    setJoinNotice(null);
+    try {
+      const community = await api.post<Community>("/api/communities/join-by-code", { invitationCode: joinCode.trim() });
+      setJoinCode("");
+      setJoinNoticeType("ok");
+      setJoinNotice(`Joined "${community.name}".`);
+      await load();
+    } catch (e) {
+      setJoinNoticeType("err");
+      setJoinNotice(e instanceof ApiError ? e.message : "Failed to join with invitation code");
+    } finally {
+      setJoining(false);
+    }
+  }
+
   const filtered = communities.filter((c) =>
     `${c.name} ${c.description ?? ""} ${c.owner.firstName} ${c.owner.lastName}`.toLowerCase().includes(query.toLowerCase())
   );
@@ -64,7 +87,7 @@ export default function CommunitiesPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-3xl font-bold tracking-tight">Communities</h1>
-          <p className="text-muted-foreground">Discover public communities and connect with your courses and peers.</p>
+          <p className="text-muted-foreground">Discover public communities and any private communities you belong to.</p>
         </div>
         {user && (
           <Button onClick={() => setShowForm((s) => !s)} className="gap-2">
@@ -72,6 +95,27 @@ export default function CommunitiesPage() {
           </Button>
         )}
       </div>
+
+      {user && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Join a private community</CardTitle>
+            <CardDescription>Have an invitation code? Enter it here to join the private community.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={joinByCode} className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1 space-y-2">
+                <Label htmlFor="invite-code">Invitation code</Label>
+                <Input id="invite-code" value={joinCode} onChange={(e) => setJoinCode(e.target.value)} placeholder="Enter invitation code" />
+              </div>
+              <Button type="submit" disabled={joining || !joinCode.trim()}>{joining ? "Joining..." : "Join with code"}</Button>
+            </form>
+            {joinNotice && (
+              <p className={`mt-3 text-sm ${joinNoticeType === "err" ? "text-destructive" : "text-primary"}`}>{joinNotice}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {showForm && user && (
         <Card className="border-primary/20 bg-card">

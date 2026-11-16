@@ -70,4 +70,10 @@ public class InvitationService {
         }
         return ic;
     }
+
+    @Transactional(readOnly = true)
+    public InvitationCode getActiveByCode(String code) {
+        return invitationCodeRepository.findByCodeAndActiveTrue(code)
+                .orElseThrow(() -> new BadRequestException("Invalid or inactive invitation code"));
+    }
 }

@@ -10,4 +10,5 @@ public interface InvitationCodeRepository extends JpaRepository<InvitationCode, 
     Optional<InvitationCode> findByCodeAndActiveTrue(String code);
     Optional<InvitationCode> findByCommunityIdAndActiveTrue(Long communityId);
     List<InvitationCode> findByCommunityId(Long communityId);
+    void deleteByCommunityId(Long communityId);
 }

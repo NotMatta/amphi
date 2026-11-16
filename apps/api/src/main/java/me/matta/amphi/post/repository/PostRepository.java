@@ -7,4 +7,6 @@ import java.util.List;
 
 public interface PostRepository extends JpaRepository<Post, Long> {
     List<Post> findByCommunityIdOrderByCreatedAtDesc(Long communityId);
+    List<Post> findByCommunityId(Long communityId);
+    List<Post> findByAuthorId(Long authorId);
 }
